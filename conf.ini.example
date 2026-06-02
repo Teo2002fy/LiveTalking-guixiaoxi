@@ -1,0 +1,73 @@
+###############################################################################
+#  LiveTalking 统一配置文件（示例模板）
+#
+#  使用方法：复制本文件为 conf.ini，填入你自己的地址和密钥。
+#    cp conf.ini.example conf.ini
+#
+#  优先级: 命令行参数 > conf.ini > 代码内置默认值
+###############################################################################
+
+# ─── 启动参数 (对应 app.py 命令行) ──────────────────────────────────────────
+[app]
+# 数字人模型: musetalk / wav2lip / ultralight
+model = musetalk
+# data/avatars 下的形象目录名
+avatar_id = your_avatar_id
+# 推理 batch，越大吞吐越高、越吃显存
+batch_size = 8
+# 视频帧率，必须 25
+fps = 25
+# 推流方式: webrtc / rtcpush / rtmp / virtualcam
+transport = webrtc
+# 最大并发会话数
+max_session = 5
+# web 监听端口
+listenport = 8010
+# 动作编排配置 json (留空则不启用)
+customvideo_config = data/custom_config.json
+# rtcpush/rtmp 推流地址 (transport=webrtc 时忽略)
+push_url = http://localhost:1985/rtc/v1/whip/?app=live&stream=livestream
+modelres = 192
+modelfile =
+
+# ─── 音频特征窗口 (高级, 一般不改) ──────────────────────────────────────────
+[audio]
+l = 10
+m = 8
+r = 10
+
+# ─── TTS 配置 ───────────────────────────────────────────────────────────────
+[tts]
+# tts 插件: edgetts / gpt-sovits / cosyvoice / xinference / fishtts /
+#           tencent / doubao / indextts2 / azuretts / qwentts
+tts = xinference
+# 参考音频/音色名。xinference(CosyVoice2) 用音色名，如: 中文女 / 中文男
+REF_FILE = 中文女
+REF_TEXT =
+# TTS 服务地址
+TTS_SERVER = http://<your-tts-host>:8005
+# Xinference 专用: API Key 与模型名
+xinference_tts_key = <your-tts-api-key>
+xinference_tts_model = CosyVoice2-0.5B
+
+# ─── 远程推理服务配置（base_url + model + api_key）──────────────────────────
+[inference]
+# 是否使用远程推理 (true: 走远程HTTP/WS; false: 本地GPU推理)
+remote = true
+# 推理服务地址（内网部署用内网IP，如 http://192.168.x.x:8020）
+base_url = http://<your-inference-host>:8020
+# 口型模型名: musetalk / wav2lip
+model = musetalk
+# API Key（与推理服务启动时 --api_key 一致，留空则不鉴权）
+api_key = <your-inference-api-key>
+
+# ─── LLM 配置 ───────────────────────────────────────────────────────────────
+[llm]
+# OpenAI 兼容端点。切 Dify: http://<dify-host>/v1
+base_url = http://<your-llm-host>:9380/v1
+api_key = <your-llm-api-key>
+model = qwen3-14b
+max_tokens = 10240
+# 是否开启 qwen3 思考模式; 实时交互建议 false
+enable_thinking = false
+system_prompt = 你是一个知识助手，尽量以简短、口语化的方式输出

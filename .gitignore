@@ -19,3 +19,30 @@ workspace/log_ngp.txt
 models/
 *.log
 dist
+
+# ─── 敏感文件（含密码/密钥，禁止提交）────────────────────────
+.ssh_youyun*.exp
+*.pem
+*.key
+secrets.*
+
+# ─── 实际配置文件（含密钥/IP），只提交 .example 模板 ──────────
+conf.ini
+remote_model/conf.ini
+
+# ─── 远程推理服务：模型权重与 avatar 素材不入库 ──────────────
+remote_model/models/
+remote_model/data/
+remote_model/server.log
+remote_model/outputs/
+
+# ─── 构建产物 ─────────────────────────────────────────────
+livetalking-inference/
+
+# ─── Python / 环境 ───────────────────────────────────────
+*.pyc
+.venv/
+venv/
+.env
+*.bak
+*.bak_*

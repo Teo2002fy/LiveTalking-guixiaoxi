@@ -80,6 +80,19 @@ def build_avatar_session(sessionid:str, params:dict)->BaseAvatar:
     opt_this.avatar_id = avatar_id
     ref_audio = params.get('refaudio','') #音色
     ref_text = params.get('reftext','')
+
+    if getattr(opt, 'inference_remote', False):
+        # 远程推理模式：不需要本地 avatar 数据，RemoteAvatar 自己处理
+        if ref_audio:
+            opt_this.REF_FILE = ref_audio
+            opt_this.REF_TEXT = ref_text
+        custom_config = params.get('custom_config', '')
+        if custom_config:
+            opt_this.customopt = json.loads(custom_config)
+        avatar_session = registry.create("avatar", opt.model, opt=opt_this)
+        return avatar_session
+
+    # 本地 GPU 模式（原逻辑）
     if (avatar_id and avatar_id != opt.avatar_id):
         # Avoid reloading if already cached globally
         if avatar_id not in global_avatars:
@@ -130,24 +143,37 @@ def main():
         'ultralight': 'avatars.ultralight_avatar',
     }
     import importlib
-    avatar_mod = importlib.import_module(_avatar_modules[opt.model])
-    load_model = avatar_mod.load_model
-    load_avatar = avatar_mod.load_avatar
-    warm_up = avatar_mod.warm_up
-    logger.info(opt)
 
-    if opt.model == 'musetalk':
-        model = load_model()
-        global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id) 
-        warm_up(opt.batch_size,model)      
-    elif opt.model == 'wav2lip':
-        model = load_model("./models/wav2lip.pth")
-        global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
-        warm_up(opt.batch_size,model,256)
-    elif opt.model == 'ultralight':
-        model = load_model(opt)
-        global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
-        warm_up(opt.batch_size,global_avatars[opt.avatar_id],160)
+    if getattr(opt, 'inference_remote', False):
+        # ─── 远程推理模式：不加载本地 GPU 模型 ─────────────────────
+        import avatars.remote_avatar  # 触发 @register
+        model = None
+        load_avatar = None
+        global_avatars[opt.avatar_id] = None  # RemoteAvatar 自己从远程拉
+        # 覆盖 model 名为 remote_ 前缀，匹配 registry 注册名
+        opt._original_model = opt.model
+        opt.model = f"remote_{opt.model}"
+        logger.info(f"Remote inference mode: model={opt.model}, server={opt.inference_server_url}")
+    else:
+        # ─── 本地 GPU 推理模式（原逻辑）──────────────────────────
+        avatar_mod = importlib.import_module(_avatar_modules[opt.model])
+        load_model = avatar_mod.load_model
+        load_avatar = avatar_mod.load_avatar
+        warm_up = avatar_mod.warm_up
+        logger.info(opt)
+
+        if opt.model == 'musetalk':
+            model = load_model()
+            global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id) 
+            warm_up(opt.batch_size,model)      
+        elif opt.model == 'wav2lip':
+            model = load_model("./models/wav2lip.pth")
+            global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
+            warm_up(opt.batch_size,model,256)
+        elif opt.model == 'ultralight':
+            model = load_model(opt)
+            global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
+            warm_up(opt.batch_size,global_avatars[opt.avatar_id],160)
 
     # init rtc manager
     session_manager.init_builder(build_avatar_session)

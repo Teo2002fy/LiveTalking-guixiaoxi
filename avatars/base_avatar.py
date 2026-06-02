@@ -95,7 +95,8 @@ class BaseAvatar:
             'doubao': 'tts.doubao',
             'indextts2': 'tts.indextts2',
             'azuretts': 'tts.azure',
-            'qwentts': 'tts.qwentts'
+            'qwentts': 'tts.qwentts',
+            'xinference': 'tts.xinference'
         }
 
         if opt.tts in _tts_modules:
@@ -200,8 +201,14 @@ class BaseAvatar:
             logger.info(item)
             input_img_list = glob.glob(os.path.join(item['imgpath'], '*.[jpJP][pnPN]*[gG]'))
             input_img_list = sorted(input_img_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+            if not input_img_list:
+                logger.warning(f"Custom video path not found or empty: {item['imgpath']}, skipping")
+                continue
             self.custom_img_cycle[item['audiotype']] = read_imgs(input_img_list)
             if item.get('audiopath'):
+                if not os.path.isfile(item['audiopath']):
+                    logger.warning(f"Custom audio file not found: {item['audiopath']}, skipping")
+                    continue
                 self.custom_audio_cycle[item['audiotype']], sample_rate = sf.read(item['audiopath'], dtype='float32')
                 self.custom_audio_index[item['audiotype']] = 0
             self.custom_index[item['audiotype']] = 0
@@ -371,12 +378,12 @@ class BaseAvatar:
         logger.info('baseavatar inference thread stop')
 
     def process_frames(self,quit_event):
-        enable_transition = False  # 设置为False禁用过渡效果，True启用
+        enable_transition = True  # 设置为False禁用过渡效果，True启用
         
         _last_speaking = False
         _transition_start = time.time()
         if enable_transition:
-            _transition_duration = 0.1  # 过渡时间
+            _transition_duration = 0.2  # 过渡时间
             _last_silent_frame = None  # 静音帧缓存
             _last_speaking_frame = None  # 说话帧缓存
 

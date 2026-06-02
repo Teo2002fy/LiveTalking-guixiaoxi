@@ -1,0 +1,29 @@
+# LiveTalking 远程推理服务依赖
+# 基础环境: Python 3.10 + PyTorch (需单独安装，见 README)
+
+# Web 服务
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic>=2.0
+
+# 数值计算
+numpy
+scipy
+opencv-python-headless
+
+# 音频处理
+librosa
+soundfile
+resampy
+python_speech_features
+
+# 模型相关
+transformers==4.46.2
+einops
+omegaconf
+diffusers
+accelerate
+
+# 工具
+tqdm
+pillow

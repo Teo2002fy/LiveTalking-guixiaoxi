@@ -1,0 +1,22 @@
+# LiveTalking 推理服务配置（示例模板）
+# 复制为 conf.ini 后填入实际值: cp conf.ini.example conf.ini
+# 优先级: 命令行参数 > conf.ini > 默认
+
+[server]
+host = 0.0.0.0
+port = 8020
+# 留空则不鉴权；建议设置以防未授权访问
+api_key = <your-inference-api-key>
+
+[model]
+# musetalk / wav2lip
+model = musetalk
+avatar_id = your_avatar_id
+batch_size = 8
+# 回传帧 JPEG 压缩质量 (1-100，越低体积越小，参照 OmniRT 用 55-60)
+jpeg_quality = 60
+wav2lip_model_path = ./models/wav2lip.pth
+
+[path]
+models_dir = ./models
+avatars_dir = ./data/avatars
