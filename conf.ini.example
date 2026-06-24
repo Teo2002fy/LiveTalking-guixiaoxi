@@ -46,9 +46,20 @@ REF_FILE = 中文女
 REF_TEXT =
 # TTS 服务地址
 TTS_SERVER = http://<your-tts-host>:8005
+# 可选：TTS 代理。服务器本机服务经 SSH SOCKS 暴露时可填 socks5h://127.0.0.1:<port>
+TTS_PROXY =
 # Xinference 专用: API Key 与模型名
 xinference_tts_key = <your-tts-api-key>
 xinference_tts_model = CosyVoice2-0.5B
+
+# ─── WebRTC 低延迟输出配置（只影响浏览器输出，不改变模型推理速度）──────────────
+[webrtc]
+fps = 15
+max_width = 576
+video_queue = 2
+audio_queue = 60
+video_bitrate = 800000
+codec = H264
 
 # ─── 远程推理服务配置（base_url + model + api_key）──────────────────────────
 [inference]

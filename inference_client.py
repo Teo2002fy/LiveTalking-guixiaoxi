@@ -92,7 +92,11 @@ class InferenceClient:
         }
         r = requests.post(f"{self.server_url}/audio_feature",
                           json=payload, headers=self._headers, timeout=30)
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except requests.HTTPError:
+            logger.error("audio_feature HTTP %s: %s", r.status_code, r.text[:1000])
+            raise
         return _b64_to_np(r.json()["features_b64"])
 
     def inference(self, audiofeat_batch: np.ndarray,
@@ -102,9 +106,8 @@ class InferenceClient:
             try:
                 return self._inference_ws(audiofeat_batch, index, batch_size)
             except Exception as e:
-                logger.warning(f"WS inference failed ({e}), fallback to HTTP")
+                logger.warning(f"WS inference failed ({e}), fallback to HTTP for this batch")
                 self._close_ws()
-                self.use_ws = False
         return self._inference_http(audiofeat_batch, index, batch_size)
 
     def _inference_ws(self, audiofeat_batch, index, batch_size) -> np.ndarray:
@@ -138,7 +141,11 @@ class InferenceClient:
         }
         r = requests.post(f"{self.server_url}/inference",
                           json=payload, headers=self._headers, timeout=30)
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except requests.HTTPError:
+            logger.error("inference HTTP %s: %s", r.status_code, r.text[:1000])
+            raise
         data = r.json()
         if data.get("format") == "jpeg":
             return np.stack([_jpeg_b64_to_np(s) for s in data["frames_jpeg_b64"]])

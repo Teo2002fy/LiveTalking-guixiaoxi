@@ -73,7 +73,7 @@ def parse_args():
 
     # ─── 音频特征窗口 ──────────────────────────────────────────────────
     parser.add_argument('--fps', type=int, default=int(A('fps', 25)),
-                        help="video fps, must be 25")
+                        help="video fps")
     parser.add_argument('-l', type=int, default=int(AU('l', 10)))
     parser.add_argument('-m', type=int, default=int(AU('m', 8)))
     parser.add_argument('-r', type=int, default=int(AU('r', 10)))
@@ -104,6 +104,9 @@ def parse_args():
     parser.add_argument('--REF_TEXT', type=str, default=T('REF_TEXT', None) or None)
     parser.add_argument('--TTS_SERVER', type=str,
                         default=T('TTS_SERVER', 'http://127.0.0.1:9880'))
+    parser.add_argument('--TTS_PROXY', type=str,
+                        default=T('TTS_PROXY', T('proxy', '') or '') or '',
+                        help="optional proxy for TTS HTTP calls, e.g. socks5h://127.0.0.1:<port>")
 
     # ─── 传输 ─────────────────────────────────────────────────────────
     parser.add_argument('--transport', type=str, default=A('transport', 'webrtc'),
@@ -127,11 +130,22 @@ def parse_args():
     opt.config_path = pre_args.config
     opt.xinference_tts_key = T('xinference_tts_key', '') or ''
     opt.xinference_tts_model = T('xinference_tts_model', 'CosyVoice2-0.5B')
+    opt.tts_proxy = getattr(opt, 'TTS_PROXY', '') or ''
 
     # [inference] 远程推理
     I = lambda k, d: _ini_get(cfg, 'inference', k, d)
     opt.inference_remote = (I('remote', 'false') or 'false').lower() == 'true'
     opt.inference_server_url = I('base_url', 'http://127.0.0.1:8020') or 'http://127.0.0.1:8020'
     opt.inference_api_key = I('api_key', '') or ''
+
+    # [webrtc] low-latency media output settings. These affect browser delivery,
+    # not the upstream model inference rate.
+    W = lambda k, d: _ini_get(cfg, 'webrtc', k, d)
+    opt.webrtc_fps = int(W('fps', opt.fps) or opt.fps)
+    opt.webrtc_max_width = int(W('max_width', 576) or 576)
+    opt.webrtc_video_queue = int(W('video_queue', 2) or 2)
+    opt.webrtc_audio_queue = int(W('audio_queue', 60) or 60)
+    opt.webrtc_video_bitrate = int(W('video_bitrate', 800000) or 800000)
+    opt.webrtc_codec = (W('codec', 'H264') or 'H264').upper()
 
     return opt

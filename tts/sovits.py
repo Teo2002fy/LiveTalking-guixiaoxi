@@ -3,6 +3,9 @@ import numpy as np
 import resampy
 import soundfile as sf
 import requests
+import json
+import shutil
+import subprocess
 from io import BytesIO
 from typing import Iterator
 
@@ -23,11 +26,12 @@ class SovitsTTS(BaseTTS):
                 reftext=ref_text,
                 language="zh", #en args.language,
                 server_url=self.opt.TTS_SERVER, #"http://127.0.0.1:5000", #args.server_url,
+                proxy=getattr(self.opt, 'tts_proxy', '') or getattr(self.opt, 'TTS_PROXY', ''),
             ),
             msg
         )
 
-    def gpt_sovits(self, text, reffile, reftext,language, server_url) -> Iterator[bytes]:
+    def gpt_sovits(self, text, reffile, reftext,language, server_url, proxy='') -> Iterator[bytes]:
         start = time.perf_counter()
         req={
             'text':text,
@@ -35,7 +39,9 @@ class SovitsTTS(BaseTTS):
             'ref_audio_path':reffile,
             'prompt_text':reftext,
             'prompt_lang':language,
-            'media_type':'ogg',
+            'text_split_method': 'cut5',
+            'batch_size': 1,
+            'media_type':'raw',
             'streaming_mode':True
         }
         # req["text"] = text
@@ -45,10 +51,62 @@ class SovitsTTS(BaseTTS):
         # #req["stream_chunk_size"] = stream_chunk_size  # you can reduce it to get faster response, but degrade quality
         # req["streaming_mode"] = True
         try:
-            res = requests.post(
-                f"{server_url}/tts",
+            proxy = (proxy or '').strip()
+            if proxy and proxy.startswith(('socks5://', 'socks5h://')):
+                curl_bin = shutil.which('curl.exe') or shutil.which('curl')
+                if not curl_bin:
+                    logger.error('gpt_sovits socks proxy requires curl, but curl was not found')
+                    return
+                cmd = [
+                    curl_bin,
+                    '--socks5-hostname', proxy.split('://', 1)[1],
+                    '--max-time', '120',
+                    '-sS',
+                    '--fail',
+                    '-X', 'POST',
+                    f'{server_url.rstrip("/")}/tts',
+                    '-H', 'Content-Type: application/json',
+                    '--data-binary', '@-',
+                ]
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=False,
+                )
+                assert proc.stdin is not None
+                proc.stdin.write(json.dumps(req, ensure_ascii=False).encode('utf-8'))
+                proc.stdin.close()
+                end = time.perf_counter()
+                logger.info(f"gpt_sovits curl POST started: {end-start}s via {proxy}")
+
+                first = True
+                while self.state == State.RUNNING:
+                    chunk = proc.stdout.read(4096) if proc.stdout else b''
+                    if not chunk:
+                        break
+                    if first:
+                        end = time.perf_counter()
+                        logger.info(f"gpt_sovits Time to first chunk: {end-start}s")
+                        first = False
+                    yield chunk
+
+                stderr = proc.stderr.read().decode('utf-8', errors='ignore') if proc.stderr else ''
+                return_code = proc.wait(timeout=5)
+                if return_code != 0:
+                    logger.error('gpt_sovits curl failed code=%s stderr=%s', return_code, stderr.strip())
+                return
+
+            session = requests.Session()
+            session.trust_env = False
+            proxies = {'http': proxy, 'https': proxy} if proxy else None
+            res = session.post(
+                f"{server_url.rstrip('/')}/tts",
                 json=req,
                 stream=True,
+                timeout=(10, 120),
+                proxies=proxies,
             )
             end = time.perf_counter()
             logger.info(f"gpt_sovits Time to make POST: {end-start}s")
@@ -56,11 +114,11 @@ class SovitsTTS(BaseTTS):
             if res.status_code != 200:
                 logger.error("Error:%s", res.text)
                 return
-                
+
             first = True
-        
-            for chunk in res.iter_content(chunk_size=None): #12800 1280 32K*20ms*2
-                logger.info('chunk len:%d',len(chunk))
+            for chunk in res.iter_content(chunk_size=4096): # raw PCM chunks; smaller chunks reduce playback latency
+                if self.state != State.RUNNING:
+                    break
                 if first:
                     end = time.perf_counter()
                     logger.info(f"gpt_sovits Time to first chunk: {end-start}s")
@@ -90,23 +148,52 @@ class SovitsTTS(BaseTTS):
     def stream_tts(self,audio_stream,msg:tuple[str, dict]):
         text,textevent = msg
         first = True
+        byte_buffer = b""
+        sample_buffer = np.empty(0, dtype=np.float32)
+
         for chunk in audio_stream:
-            if chunk is not None and len(chunk)>0:          
-                #stream = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767
-                #stream = resampy.resample(x=stream, sr_orig=32000, sr_new=self.sample_rate)
-                byte_stream=BytesIO(chunk)
-                stream = self.__create_bytes_stream(byte_stream)
-                streamlen = stream.shape[0]
-                idx=0
-                while streamlen >= self.chunk:
-                    eventpoint={}
-                    if first:
-                        eventpoint={'status':'start','text':text}
-                        first = False
-                    eventpoint.update(**textevent) 
-                    self.parent.put_audio_frame(stream[idx:idx+self.chunk],eventpoint)
-                    streamlen -= self.chunk
-                    idx += self.chunk
+            if self.state != State.RUNNING:
+                break
+            if chunk is None or len(chunk) <= 0:
+                continue
+
+            byte_buffer += chunk
+            usable_bytes = len(byte_buffer) - (len(byte_buffer) % 2)
+            if usable_bytes <= 0:
+                continue
+
+            pcm32k = np.frombuffer(byte_buffer[:usable_bytes], dtype=np.int16).astype(np.float32) / 32768.0
+            byte_buffer = byte_buffer[usable_bytes:]
+            if pcm32k.size == 0:
+                continue
+
+            # GPT-SoVITS raw stream is mono s16le at 32 kHz; LiveTalking expects 16 kHz.
+            stream = pcm32k[::2]
+            if sample_buffer.size:
+                stream = np.concatenate((sample_buffer, stream))
+
+            idx=0
+            while stream.shape[0] - idx >= self.chunk:
+                eventpoint={}
+                if first:
+                    eventpoint={'status':'start','text':text}
+                    first = False
+                eventpoint.update(**textevent)
+                self.parent.put_audio_frame(stream[idx:idx+self.chunk],eventpoint)
+                idx += self.chunk
+            sample_buffer = stream[idx:]
+
+        if sample_buffer.size:
+            padded = np.zeros(self.chunk, dtype=np.float32)
+            n = min(sample_buffer.size, self.chunk)
+            padded[:n] = sample_buffer[:n]
+            eventpoint={}
+            if first:
+                eventpoint={'status':'start','text':text}
+                first = False
+            eventpoint.update(**textevent)
+            self.parent.put_audio_frame(padded,eventpoint)
+
         eventpoint={'status':'end','text':text}
-        eventpoint.update(**textevent) 
+        eventpoint.update(**textevent)
         self.parent.put_audio_frame(np.zeros(self.chunk,np.float32),eventpoint)

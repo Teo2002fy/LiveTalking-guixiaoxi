@@ -10,13 +10,27 @@ from utils.logger import logger
 from .base_tts import BaseTTS, State
 from registry import register
 
+
+DEFAULT_EDGE_VOICE = 'zh-CN-YunxiaNeural'
 @register("tts", "edgetts")
 class EdgeTTS(BaseTTS):
     def txt_to_audio(self,msg:tuple[str, dict]):
         text,textevent = msg
-        voicename = textevent.get('tts', {}).get('ref_file',self.opt.REF_FILE) #self.opt.REF_FILE #"zh-CN-YunxiaNeural"
+        voicename = textevent.get('tts', {}).get('ref_file', self.opt.REF_FILE) or self.opt.REF_FILE
+        if not isinstance(voicename, str):
+            voicename = DEFAULT_EDGE_VOICE
+        voicename = voicename.strip()
+        lower_voice = voicename.lower()
+        if (
+            not voicename
+            or '/' in voicename
+            or '\\' in voicename
+            or any(token in lower_voice for token in ('.wav', '.mp3', '.aac', '.ogg', '.flac', '.m4a'))
+        ):
+            logger.warning('Invalid EdgeTTS voice %r; falling back to %s', voicename, DEFAULT_EDGE_VOICE)
+            voicename = DEFAULT_EDGE_VOICE
         t = time.time()
-        asyncio.new_event_loop().run_until_complete(self.__main(voicename,text))
+        asyncio.new_event_loop().run_until_complete(self.__main(voicename, text))
         logger.info(f'-------edge tts time:{time.time()-t:.4f}s')
         if self.input_stream.getbuffer().nbytes<=0: #edgetts err
             logger.error('edgetts err!!!!!')

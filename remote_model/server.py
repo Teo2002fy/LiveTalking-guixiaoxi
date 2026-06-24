@@ -59,7 +59,7 @@ _state = {
     "api_key": "",
     "models_dir": "./models",
     "avatars_dir": "./data/avatars",
-    "jpeg_quality": 60,
+    "jpeg_quality": 85,
 }
 
 # JPEG 并行编码线程池（参照 OmniRT FLASHTALK_JPEG_WORKERS）
@@ -117,12 +117,18 @@ def frames_to_jpeg_bytes(frames: np.ndarray, quality: int) -> list:
 def _run_inference(audiofeat_batch: np.ndarray, index: int, batch_size: int) -> np.ndarray:
     """核心推理：特征 batch + index → 脸帧 batch (N,H,W,3) uint8。HTTP/WS 共用。"""
     device = _state["device"]
+    audiofeat_batch = np.asarray(audiofeat_batch)
+    actual_batch = len(audiofeat_batch)
+    if actual_batch <= 0:
+        raise ValueError("empty audiofeat_batch")
+    if actual_batch != batch_size:
+        logger.warning(f"inference batch mismatch: request={batch_size}, actual={actual_batch}")
+        batch_size = actual_batch
     if _state["model_type"] == "wav2lip":
         model = _state["model"]
         frame_list, face_list, coord_list = _state["avatar"]
         length = len(face_list)
         img_batch = np.asarray([face_list[mirror_index(length, index + i)] for i in range(batch_size)])
-        audiofeat_batch = np.asarray(audiofeat_batch)
         img_masked = img_batch.copy()
         img_masked[:, img_batch.shape[1] // 2:] = 0
         img_batch_input = np.concatenate((img_masked, img_batch), axis=3) / 255.0
@@ -221,6 +227,8 @@ def health():
         "model_type": _state["model_type"],
         "avatar_id": _state["avatar_id"],
         "device": str(_state["device"]),
+        "batch_size": _state["batch_size"],
+        "jpeg_quality": _state["jpeg_quality"],
         "auth_required": bool(_state["api_key"]),
     }
 
@@ -280,16 +288,9 @@ def _extract_feature(audio_frames, stride_left_size, stride_right_size, batch_si
     else:
         vae, unet, pe, timesteps, audio_processor = _state["model"]
         whisper_feature = audio_processor.audio2feat(audio_frames)
-        feature_chunks = []
         start = stride_left_size / 2
-        for i in range(batch_size):
-            center_idx = int((i + start) * 2)
-            selected = []
-            for idx in range(center_idx, center_idx + 5):
-                idx = max(0, min(len(whisper_feature) - 1, idx))
-                selected.append(whisper_feature[idx])
-            feature_chunks.append(np.asarray(selected).reshape(-1, 384))
-        return np.array(feature_chunks)
+        return np.array(audio_processor.feature2chunks(
+            whisper_feature, fps=fps, batch_size=batch_size, start=start))
 
 
 @app.post("/audio_feature", dependencies=[Depends(verify_api_key)])
