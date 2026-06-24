@@ -130,6 +130,20 @@ async def download_record(request):
         return web.Response(status=404, text="Record not found")
 
 
+async def webrtc_config(request):
+    opt_cfg = request.app["opt"]
+    return web.json_response({
+        "iceServers": getattr(opt_cfg, "webrtc_ice_servers", []) or [],
+        "iceTransportPolicy": "relay" if getattr(opt_cfg, "webrtc_force_turn", False) else "all",
+        "iceGatherTimeoutMs": int(getattr(opt_cfg, "webrtc_ice_gather_timeout", 3000) or 3000),
+        "degradationPreference": getattr(opt_cfg, "webrtc_degradation_preference", "maintain-framerate"),
+        "videoBitrate": int(getattr(opt_cfg, "webrtc_video_bitrate", 800000) or 800000),
+        "fps": int(getattr(opt_cfg, "webrtc_fps", 15) or 15),
+        "maxWidth": int(getattr(opt_cfg, "webrtc_max_width", 576) or 576),
+        "codec": getattr(opt_cfg, "webrtc_codec", "H264"),
+    })
+
+
 def main():
     global rtc_manager, opt, model,load_avatar
     # 解析命令行参数
@@ -196,6 +210,7 @@ def main():
 
     appasync.on_shutdown.append(on_shutdown)
     appasync.router.add_post("/offer", offer)
+    appasync.router.add_get("/api/webrtc/config", webrtc_config)
     appasync.router.add_get("/record/{sessionid}", download_record)
     
     # 注册 server/routes.py 中的通用 API 路由

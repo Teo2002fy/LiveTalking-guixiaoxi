@@ -147,6 +147,7 @@
                     <div class="mt-3">
                         <video id="video" autoplay playsinline></video>
                         <audio id="audio" autoplay preload="auto" style="display:none"></audio>
+                        <pre id="webrtcStats" class="mt-2 mb-0">WebRTC: -</pre>
                     </div>
                 </div>
             </div>
@@ -218,6 +219,14 @@
 <script>
 let pc = null;
 let sessionid = null;
+let statsTimer = null;
+let lastVideoStats = null;
+let webrtcConfig = {
+    iceServers: [],
+    iceTransportPolicy: 'all',
+    iceGatherTimeoutMs: 3000,
+    codec: 'H264',
+};
 
 function updateStatus(connected) {
     const badge = document.getElementById('statusBadge');
@@ -240,7 +249,23 @@ function setSessionId(sid) {
     document.getElementById('sessionIdDisplay').textContent = 'SID: ' + (sid || '-');
 }
 
-function waitIceGathering(currentPc, timeoutMs = 1500) {
+function setDiagnostics(text) {
+    const el = document.getElementById('webrtcStats');
+    if (el) el.textContent = text || 'WebRTC: -';
+}
+
+async function loadWebRTCConfig() {
+    try {
+        const res = await fetch('/api/webrtc/config', { cache: 'no-store' });
+        if (!res.ok) throw new Error(String(res.status));
+        webrtcConfig = { ...webrtcConfig, ...(await res.json()) };
+    } catch (e) {
+        console.warn('use default WebRTC config:', e);
+    }
+    return webrtcConfig;
+}
+
+function waitIceGathering(currentPc, timeoutMs = webrtcConfig.iceGatherTimeoutMs || 3000) {
     return new Promise(resolve => {
         if (!currentPc || currentPc.iceGatheringState === 'complete') return resolve();
         let done = false;
@@ -260,12 +285,25 @@ function waitIceGathering(currentPc, timeoutMs = 1500) {
     });
 }
 
+function preferVideoCodec(transceiver, codecName) {
+    if (!transceiver || !window.RTCRtpReceiver || !RTCRtpReceiver.getCapabilities || !transceiver.setCodecPreferences) return;
+    const caps = RTCRtpReceiver.getCapabilities('video');
+    if (!caps || !caps.codecs) return;
+    const preferred = String(codecName || '').toUpperCase();
+    const codecs = [
+        ...caps.codecs.filter(c => c.mimeType && c.mimeType.toUpperCase() === 'VIDEO/' + preferred),
+        ...caps.codecs.filter(c => !c.mimeType || c.mimeType.toUpperCase() !== 'VIDEO/' + preferred),
+    ];
+    if (codecs.length) transceiver.setCodecPreferences(codecs);
+}
+
 async function negotiate(currentPc) {
-    currentPc.addTransceiver('video', { direction: 'recvonly' });
+    const videoTransceiver = currentPc.addTransceiver('video', { direction: 'recvonly' });
     currentPc.addTransceiver('audio', { direction: 'recvonly' });
+    preferVideoCodec(videoTransceiver, webrtcConfig.codec || 'H264');
 
     await currentPc.setLocalDescription(await currentPc.createOffer());
-    await waitIceGathering(currentPc, 1500);
+    await waitIceGathering(currentPc);
 
     const offer = currentPc.localDescription;
     const body = {
@@ -303,16 +341,76 @@ async function negotiate(currentPc) {
     await currentPc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answer.sdp }));
 }
 
+function stopStatsMonitor() {
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    lastVideoStats = null;
+}
+
+function startStatsMonitor(currentPc) {
+    stopStatsMonitor();
+    statsTimer = setInterval(async () => {
+        if (!currentPc || currentPc.connectionState === 'closed') return;
+        const report = await currentPc.getStats().catch(() => null);
+        if (!report) return;
+        let video = null;
+        let audio = null;
+        let pair = null;
+        report.forEach(stat => {
+            const mediaKind = stat.kind || stat.mediaType;
+            if (stat.type === 'inbound-rtp' && mediaKind === 'video') video = stat;
+            if (stat.type === 'inbound-rtp' && mediaKind === 'audio') audio = stat;
+            if (stat.type === 'candidate-pair' && stat.state === 'succeeded' && stat.nominated) pair = stat;
+        });
+
+        const parts = [
+            'WebRTC',
+            'conn=' + currentPc.connectionState,
+            'ice=' + currentPc.iceConnectionState,
+            'gather=' + currentPc.iceGatheringState,
+        ];
+        if (video) {
+            const now = video.timestamp || performance.now();
+            let fps = '-';
+            if (lastVideoStats) {
+                const dt = Math.max(1, now - lastVideoStats.ts) / 1000;
+                fps = ((video.framesDecoded - lastVideoStats.framesDecoded) / dt).toFixed(1);
+            }
+            lastVideoStats = {
+                ts: now,
+                framesDecoded: video.framesDecoded || 0,
+            };
+            parts.push('fps=' + fps);
+            parts.push('dropped=' + (video.framesDropped || 0));
+            parts.push('jitter=' + Math.round((video.jitter || 0) * 1000) + 'ms');
+        }
+        if (audio) {
+            parts.push('audioLost=' + (audio.packetsLost || 0));
+            parts.push('audioJitter=' + Math.round((audio.jitter || 0) * 1000) + 'ms');
+        }
+        if (pair && pair.currentRoundTripTime) {
+            parts.push('rtt=' + Math.round(pair.currentRoundTripTime * 1000) + 'ms');
+        }
+        setDiagnostics(parts.join(' | '));
+    }, 1000);
+}
+
 async function start() {
     stop();
     setConnectControls(true);
     updateStatus(false);
+    setDiagnostics('WebRTC: connecting...');
+    const cfg = await loadWebRTCConfig();
 
     const audio = document.getElementById('audio');
     audio.muted = false;
     audio.volume = 1;
 
-    const currentPc = new RTCPeerConnection({ iceServers: [] });
+    const currentPc = new RTCPeerConnection({
+        iceServers: cfg.iceServers || [],
+        iceTransportPolicy: cfg.iceTransportPolicy || 'all',
+        bundlePolicy: 'max-bundle',
+    });
     pc = currentPc;
 
     currentPc.addEventListener('track', evt => {
@@ -332,6 +430,14 @@ async function start() {
         if (currentPc.connectionState === 'connected') updateStatus(true);
         else if (['disconnected', 'failed', 'closed'].includes(currentPc.connectionState)) stop();
     });
+    currentPc.addEventListener('iceconnectionstatechange', () => {
+        console.log('WebRTC iceConnectionState:', currentPc.iceConnectionState);
+    });
+    currentPc.addEventListener('icecandidateerror', e => {
+        console.warn('ICE candidate error:', e);
+        setDiagnostics('WebRTC ICE error: ' + (e.errorText || e.errorCode || 'unknown'));
+    });
+    startStatsMonitor(currentPc);
 
     try {
         await negotiate(currentPc);
@@ -343,10 +449,12 @@ async function start() {
 }
 
 function stop() {
+    stopStatsMonitor();
     if (pc) { pc.close(); pc = null; }
     updateStatus(false);
     setSessionId(null);
     setConnectControls(false);
+    setDiagnostics('WebRTC: -');
     document.getElementById('video').srcObject = null;
     document.getElementById('audio').srcObject = null;
 }

@@ -60,6 +60,17 @@ video_queue = 2
 audio_queue = 60
 video_bitrate = 800000
 codec = H264
+# Optional STUN/TURN servers. Use coturn here when browser and server are not
+# on the same LAN or direct ICE is unstable.
+# stun_urls = stun:<your-turn-host>:3478
+# turn_urls = turn:<your-turn-host>:3478?transport=udp, turn:<your-turn-host>:3478?transport=tcp
+# turn_username =
+# turn_credential =
+# Alternative advanced format:
+# ice_servers = [{"urls":["turn:<host>:3478?transport=udp"],"username":"user","credential":"pass"}]
+# force_turn = false
+ice_gather_timeout_ms = 3000
+degradation_preference = maintain-framerate
 
 # ─── 远程推理服务配置（base_url + model + api_key）──────────────────────────
 [inference]

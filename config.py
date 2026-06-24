@@ -17,6 +17,7 @@ import argparse
 import configparser
 import json
 import os
+import re
 
 # conf.ini 默认路径 (项目根目录)
 _DEFAULT_CONF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "conf.ini")
@@ -53,6 +54,73 @@ def _ini_get(cfg, section, key, fallback=None):
     if cfg.has_option(section, key):
         return cfg.get(section, key)
     return fallback
+
+
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+def _parse_csv(value):
+    if not value:
+        return []
+    return [item.strip() for item in re.split(r"[\n,]+", str(value)) if item.strip()]
+
+
+def _parse_ice_servers(cfg):
+    """Parse [webrtc] ICE servers for both browser and aiortc.
+
+    Supported formats:
+      ice_servers = [{"urls":"turn:host:3478","username":"u","credential":"p"}]
+      stun_urls = stun:host:3478, stun:host2:3478
+      turn_urls = turn:host:3478?transport=udp, turn:host:3478?transport=tcp
+    """
+    W = lambda k, d="": _ini_get(cfg, "webrtc", k, d)
+    raw = (W("ice_servers", "") or "").strip()
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                data = [data]
+            if isinstance(data, list):
+                servers = []
+                for item in data:
+                    if not isinstance(item, dict) or not item.get("urls"):
+                        continue
+                    server = {"urls": item["urls"]}
+                    for key in ("username", "credential", "credentialType"):
+                        if item.get(key):
+                            server[key] = item[key]
+                    servers.append(server)
+                return servers
+        except json.JSONDecodeError:
+            pass
+
+    servers = []
+    stun_urls = _parse_csv(os.getenv("LIVETALKING_STUN_URLS", W("stun_urls", "")))
+    if stun_urls:
+        servers.append({"urls": stun_urls if len(stun_urls) > 1 else stun_urls[0]})
+
+    turn_urls = _parse_csv(os.getenv("LIVETALKING_TURN_URLS", W("turn_urls", "")))
+    turn_username = os.getenv("LIVETALKING_TURN_USERNAME", W("turn_username", "") or "")
+    turn_credential = os.getenv("LIVETALKING_TURN_CREDENTIAL", W("turn_credential", "") or "")
+    if turn_urls:
+        server = {"urls": turn_urls if len(turn_urls) > 1 else turn_urls[0]}
+        if turn_username:
+            server["username"] = turn_username
+        if turn_credential:
+            server["credential"] = turn_credential
+        servers.append(server)
+
+    return servers
 
 
 def parse_args():
@@ -147,5 +215,9 @@ def parse_args():
     opt.webrtc_audio_queue = int(W('audio_queue', 60) or 60)
     opt.webrtc_video_bitrate = int(W('video_bitrate', 800000) or 800000)
     opt.webrtc_codec = (W('codec', 'H264') or 'H264').upper()
+    opt.webrtc_ice_servers = _parse_ice_servers(cfg)
+    opt.webrtc_force_turn = _parse_bool(W('force_turn', 'false'), False)
+    opt.webrtc_ice_gather_timeout = int(W('ice_gather_timeout_ms', 3000) or 3000)
+    opt.webrtc_degradation_preference = W('degradation_preference', 'maintain-framerate')
 
     return opt
