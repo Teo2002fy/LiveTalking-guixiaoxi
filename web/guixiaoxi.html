@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GuiXiaoxi 数字人语音对话</title>
+  <style>
+    :root {
+      --page: #f3f8ff;
+      --page-2: #eaf3ff;
+      --ink: #172033;
+      --muted: #62708a;
+      --soft: #8a98ad;
+      --line: #d8e4f2;
+      --blue: #2563eb;
+      --blue-2: #4f8cff;
+      --cyan: #22d3ee;
+      --green: #22c55e;
+      --danger: #e11d48;
+      --panel: rgba(255, 255, 255, 0.86);
+      --shadow: 0 22px 70px rgba(31, 71, 136, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 8% 12%, rgba(34, 211, 238, 0.24), transparent 28%),
+        radial-gradient(circle at 88% 8%, rgba(79, 140, 255, 0.22), transparent 30%),
+        linear-gradient(180deg, #f8fbff 0%, var(--page) 48%, var(--page-2) 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        linear-gradient(rgba(37, 99, 235, 0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px);
+      background-size: 56px 56px;
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .screen {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 78px minmax(0, 1fr) 178px;
+      gap: 14px;
+      padding: 20px 30px 22px;
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      min-width: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      min-width: 0;
+    }
+
+    .brand-title {
+      color: #101828;
+      font-size: clamp(30px, 2.2vw, 40px);
+      line-height: 1;
+      font-weight: 860;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .brand-subtitle {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 15px;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .chip {
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 14px;
+      border: 1px solid rgba(216, 228, 242, 0.95);
+      border-radius: 10px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.74);
+      backdrop-filter: blur(16px);
+      font-size: 14px;
+      white-space: nowrap;
+      box-shadow: 0 12px 34px rgba(31, 71, 136, 0.08);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #f59e0b;
+      box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.15);
+    }
+
+    .dot.connected {
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.14);
+    }
+
+    .video-card {
+      position: relative;
+      z-index: 2;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 56px;
+      overflow: hidden;
+      border: 1px solid rgba(187, 204, 226, 0.76);
+      border-radius: 28px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 251, 255, 0.78)),
+        #ffffff;
+      box-shadow: var(--shadow);
+    }
+
+    .video-card::before,
+    .video-card::after {
+      content: "";
+      position: absolute;
+      width: 74px;
+      height: 74px;
+      pointer-events: none;
+      border-color: rgba(37, 99, 235, 0.55);
+      border-style: solid;
+      z-index: 4;
+    }
+
+    .video-card::before {
+      left: 18px;
+      top: 18px;
+      border-width: 2px 0 0 2px;
+      border-top-left-radius: 18px;
+    }
+
+    .video-card::after {
+      right: 18px;
+      bottom: 18px;
+      border-width: 0 2px 2px 0;
+      border-bottom-right-radius: 18px;
+    }
+
+    .video-wrap {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.95), rgba(236, 244, 255, 0.62) 44%, rgba(224, 237, 255, 0.86) 100%);
+    }
+
+    .video-wrap::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.5), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.52));
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    video {
+      position: relative;
+      z-index: 1;
+      width: auto;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      object-position: center bottom;
+      background: transparent;
+      transform: translateZ(0);
+    }
+
+    audio {
+      display: none;
+    }
+
+    .caption {
+      position: relative;
+      z-index: 5;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 32px;
+      border-top: 1px solid rgba(216, 228, 242, 0.86);
+      color: #102a56;
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(18px);
+      font-size: clamp(20px, 1.8vw, 32px);
+      font-weight: 780;
+      line-height: 1.25;
+      text-align: center;
+      word-break: break-word;
+    }
+
+    .control-panel {
+      position: relative;
+      z-index: 3;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr);
+      gap: 24px;
+      align-items: center;
+      padding: 18px 24px;
+      border: 1px solid rgba(188, 207, 232, 0.78);
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(22px);
+      box-shadow: var(--shadow);
+    }
+
+    .state-block {
+      min-width: 0;
+    }
+
+    .console-title {
+      color: #12203a;
+      font-size: clamp(24px, 1.8vw, 34px);
+      line-height: 1.15;
+      font-weight: 860;
+      letter-spacing: 0;
+    }
+
+    .console-subtitle {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .dialogue-preview {
+      margin-top: 18px;
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .dialogue-line {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .dialogue-line span {
+      color: #7890ad;
+      white-space: nowrap;
+    }
+
+    .dialogue-line strong {
+      min-width: 0;
+      color: #21304a;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mic-area {
+      position: relative;
+      width: 122px;
+      height: 122px;
+      justify-self: center;
+      display: grid;
+      place-items: center;
+    }
+
+    .mic-pulse,
+    .mic-pulse.two {
+      position: absolute;
+      inset: 8px;
+      border-radius: 50%;
+      border: 2px solid rgba(37, 99, 235, 0.28);
+      opacity: 0;
+      transform: scale(0.74);
+      pointer-events: none;
+    }
+
+    .mic-pulse.two {
+      border-color: rgba(34, 211, 238, 0.36);
+      animation-delay: 0.8s;
+    }
+
+    .mic-button {
+      position: relative;
+      z-index: 2;
+      width: 96px;
+      height: 96px;
+      border: 0;
+      border-radius: 50%;
+      color: #ffffff;
+      background:
+        radial-gradient(circle at 34% 22%, rgba(255, 255, 255, 0.82), transparent 34%),
+        linear-gradient(145deg, var(--blue), var(--blue-2) 56%, var(--cyan));
+      box-shadow:
+        0 18px 42px rgba(37, 99, 235, 0.34),
+        inset 0 -14px 22px rgba(20, 78, 190, 0.26);
+      font-size: 20px;
+      font-weight: 950;
+      letter-spacing: 0;
+      transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .mic-button:hover {
+      transform: translateY(-2px);
+      filter: brightness(1.05);
+    }
+
+    .mic-button:disabled {
+      cursor: wait;
+      filter: grayscale(0.35) brightness(0.88);
+      transform: none;
+    }
+
+    .voice-bars {
+      position: absolute;
+      left: 50%;
+      top: -2px;
+      z-index: 1;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transform: translateX(-50%);
+      opacity: 0.42;
+      pointer-events: none;
+    }
+
+    .bar {
+      width: 4px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--blue);
+      opacity: 0.6;
+    }
+
+    .bar:nth-child(2) { height: 17px; background: var(--cyan); }
+    .bar:nth-child(3) { height: 24px; }
+    .bar:nth-child(4) { height: 14px; background: var(--cyan); }
+    .bar:nth-child(5) { height: 21px; }
+    .bar:nth-child(6) { height: 12px; background: var(--cyan); }
+    .bar:nth-child(7) { height: 26px; }
+
+    .interaction-block {
+      min-width: 0;
+      display: grid;
+      gap: 14px;
+    }
+
+    .input-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 96px;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .text-input {
+      width: 100%;
+      height: 52px;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      outline: none;
+      padding: 0 18px;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+    }
+
+    .text-input:focus {
+      border-color: rgba(37, 99, 235, 0.54);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+    }
+
+    .tool-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .tool-button {
+      height: 44px;
+      min-width: 82px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      color: #43546f;
+      background: rgba(255, 255, 255, 0.82);
+      padding: 0 16px;
+      white-space: nowrap;
+    }
+
+    .tool-button.primary {
+      color: #ffffff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--blue), var(--blue-2));
+      font-weight: 800;
+      box-shadow: 0 12px 30px rgba(37, 99, 235, 0.24);
+    }
+
+    .tool-button:hover {
+      border-color: rgba(37, 99, 235, 0.44);
+      color: #17346e;
+    }
+
+    .tool-button.primary:hover {
+      color: #ffffff;
+      filter: brightness(1.04);
+    }
+
+    .screen.listening .mic-pulse,
+    .screen.thinking .mic-pulse,
+    .screen.speaking .mic-pulse {
+      animation: pulse 1.9s ease-out infinite;
+      opacity: 1;
+    }
+
+    .screen.listening .bar,
+    .screen.thinking .bar,
+    .screen.speaking .bar {
+      animation: voice 0.92s ease-in-out infinite;
+    }
+
+    .screen.listening .bar:nth-child(2),
+    .screen.thinking .bar:nth-child(2),
+    .screen.speaking .bar:nth-child(2) { animation-delay: 0.08s; }
+    .screen.listening .bar:nth-child(3),
+    .screen.thinking .bar:nth-child(3),
+    .screen.speaking .bar:nth-child(3) { animation-delay: 0.16s; }
+    .screen.listening .bar:nth-child(4),
+    .screen.thinking .bar:nth-child(4),
+    .screen.speaking .bar:nth-child(4) { animation-delay: 0.24s; }
+    .screen.listening .bar:nth-child(5),
+    .screen.thinking .bar:nth-child(5),
+    .screen.speaking .bar:nth-child(5) { animation-delay: 0.32s; }
+    .screen.listening .bar:nth-child(6),
+    .screen.thinking .bar:nth-child(6),
+    .screen.speaking .bar:nth-child(6) { animation-delay: 0.4s; }
+    .screen.listening .bar:nth-child(7),
+    .screen.thinking .bar:nth-child(7),
+    .screen.speaking .bar:nth-child(7) { animation-delay: 0.48s; }
+
+    @keyframes pulse {
+      0% {
+        opacity: 0.58;
+        transform: scale(0.74);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(1.26);
+      }
+    }
+
+    @keyframes voice {
+      0%,
+      100% {
+        transform: scaleY(0.62);
+        opacity: 0.45;
+      }
+      50% {
+        transform: scaleY(1.38);
+        opacity: 1;
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .screen {
+        grid-template-rows: 74px minmax(0, 1fr) 260px;
+        padding: 18px;
+      }
+
+      .control-panel {
+        grid-template-columns: minmax(0, 1fr) 132px;
+      }
+
+      .interaction-block {
+        grid-column: 1 / -1;
+      }
+
+      .dialogue-preview {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .screen {
+        overflow: auto;
+        height: auto;
+        min-height: 100vh;
+        grid-template-rows: auto 58vh auto;
+        padding: 14px;
+      }
+
+      body {
+        overflow: auto;
+      }
+
+      .topbar {
+        align-items: flex-start;
+      }
+
+      .brand-title {
+        font-size: 27px;
+      }
+
+      .brand-subtitle,
+      .status-strip .chip:nth-child(2),
+      .status-strip .chip:nth-child(3) {
+        display: none;
+      }
+
+      .video-card {
+        grid-template-rows: minmax(0, 1fr) auto;
+        border-radius: 22px;
+      }
+
+      .video-card::before,
+      .video-card::after {
+        width: 48px;
+        height: 48px;
+      }
+
+      .caption {
+        padding: 10px 14px;
+        font-size: 18px;
+      }
+
+      .control-panel {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        padding: 16px;
+        border-radius: 22px;
+      }
+
+      .mic-area {
+        width: 112px;
+        height: 112px;
+      }
+
+      .mic-button {
+        width: 92px;
+        height: 92px;
+        font-size: 18px;
+      }
+
+      .input-row {
+        grid-template-columns: 1fr;
+      }
+
+      .tool-row {
+        justify-content: stretch;
+      }
+
+      .tool-button {
+        flex: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="screen" id="screen">
+    <header class="topbar">
+      <div class="brand">
+        <div>
+          <div class="brand-title">GuiXiaoxi</div>
+          <div class="brand-subtitle">数字人语音对话展示系统</div>
+        </div>
+      </div>
+      <div class="status-strip">
+        <div class="chip"><span class="dot" id="connDot"></span><span id="connText">连接中</span></div>
+        <div class="chip" id="modeText">待机</div>
+        <div class="chip" id="clockText">--:--:--</div>
+      </div>
+    </header>
+
+    <section class="video-card" aria-label="数字人画面">
+      <div class="video-wrap">
+        <video id="video" autoplay playsinline></video>
+        <audio id="audio" autoplay></audio>
+      </div>
+      <div class="caption" id="caption">正在连接 GuiXiaoxi...</div>
+    </section>
+
+    <section class="control-panel" aria-label="语音对话控制台">
+      <div class="state-block">
+        <div class="console-title" id="consoleTitle">点击麦克风开始语音对话</div>
+        <div class="console-subtitle" id="consoleSubtitle">面向大屏展示的数字人问答交互</div>
+        <div class="dialogue-preview">
+          <div class="dialogue-line">
+            <span>提问</span>
+            <strong id="lastQuestion">等待语音输入</strong>
+          </div>
+          <div class="dialogue-line">
+            <span>回答</span>
+            <strong id="lastAnswer">GuiXiaoxi 已准备就绪</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="mic-area">
+        <div class="voice-bars" aria-hidden="true">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </div>
+        <div class="mic-pulse"></div>
+        <div class="mic-pulse two"></div>
+        <button class="mic-button" id="micButton" title="开始语音输入">MIC</button>
+      </div>
+
+      <div class="interaction-block">
+        <div class="input-row">
+          <input class="text-input" id="questionInput" placeholder="语音失败时可输入文字模拟提问" autocomplete="off" />
+          <button class="tool-button primary" id="btnSend">发送</button>
+        </div>
+        <div class="tool-row">
+          <button class="tool-button" id="btnReconnect">重新连接</button>
+          <button class="tool-button" id="btnInterrupt">打断播报</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const DEFAULT_AVATAR = "miao1_musetalk_avatar";
+    const DEFAULT_REFAUDIO = "output/slicer_opt/nxd/vo_LLZAQ001_4_nahida_15.wav_0000000000_0000141120.wav";
+    const $ = (id) => document.getElementById(id);
+
+    let pc = null;
+    let sessionid = null;
+    let webrtcConfig = null;
+    let recognition = null;
+    let recognizing = false;
+    let busy = false;
+    let conversationId = "";
+
+    function setConnection(text, connected) {
+      $("connText").textContent = text;
+      $("connDot").className = connected ? "dot connected" : "dot";
+    }
+
+    function setVisualMode(mode, title, subtitle) {
+      const screen = $("screen");
+      screen.classList.remove("listening", "thinking", "speaking");
+      if (mode) screen.classList.add(mode);
+      $("modeText").textContent = title || "待机";
+      $("consoleTitle").textContent = title || "点击麦克风开始语音对话";
+      $("consoleSubtitle").textContent = subtitle || "面向大屏展示的数字人问答交互";
+    }
+
+    function setCaption(text) {
+      $("caption").textContent = text || "GuiXiaoxi 已准备就绪";
+    }
+
+    function setLastQuestion(text) {
+      $("lastQuestion").textContent = text || "等待语音输入";
+    }
+
+    function setLastAnswer(text) {
+      $("lastAnswer").textContent = text || "GuiXiaoxi 已准备就绪";
+    }
+
+    async function loadWebRTCConfig() {
+      if (webrtcConfig) return webrtcConfig;
+      try {
+        const res = await fetch("/api/webrtc/config", { cache: "no-store" });
+        if (res.ok) webrtcConfig = await res.json();
+      } catch (error) {
+        console.warn("WebRTC config unavailable", error);
+      }
+      return webrtcConfig || {};
+    }
+
+    function waitIceGathering(currentPc, timeoutMs = 3000) {
+      return new Promise((resolve) => {
+        if (!currentPc || currentPc.iceGatheringState === "complete") {
+          resolve();
+          return;
+        }
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          currentPc.removeEventListener("icegatheringstatechange", check);
+          resolve();
+        };
+        const check = () => {
+          if (currentPc.iceGatheringState === "complete") finish();
+        };
+        currentPc.addEventListener("icegatheringstatechange", check);
+        setTimeout(finish, timeoutMs);
+      });
+    }
+
+    function preferVideoCodec(transceiver, codecName) {
+      if (!transceiver || !window.RTCRtpReceiver || !RTCRtpReceiver.getCapabilities || !transceiver.setCodecPreferences) {
+        return;
+      }
+      const caps = RTCRtpReceiver.getCapabilities("video");
+      const preferred = String(codecName || "H264").toUpperCase();
+      const codecs = (caps.codecs || []).filter((codec) => codec.mimeType.toUpperCase().includes(preferred));
+      if (codecs.length) transceiver.setCodecPreferences(codecs);
+    }
+
+    async function negotiate(currentPc) {
+      const videoTransceiver = currentPc.addTransceiver("video", { direction: "recvonly" });
+      currentPc.addTransceiver("audio", { direction: "recvonly" });
+      preferVideoCodec(videoTransceiver, webrtcConfig.codec || "H264");
+      await currentPc.setLocalDescription(await currentPc.createOffer());
+      await waitIceGathering(currentPc, Number(webrtcConfig.iceGatherTimeoutMs || 3000));
+      const offer = currentPc.localDescription;
+      const res = await fetch("/offer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sdp: offer.sdp,
+          type: offer.type,
+          avatar: DEFAULT_AVATAR,
+          refaudio: DEFAULT_REFAUDIO
+        })
+      });
+      const answer = await res.json();
+      if (!answer.sdp) throw new Error(answer.error || "offer failed");
+      sessionid = answer.sessionid;
+      window.parent && window.parent.postMessage({ type: "guixiaoxi-session", sessionid }, "*");
+      await currentPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answer.sdp }));
+    }
+
+    function disconnect() {
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      sessionid = null;
+    }
+
+    async function connect() {
+      disconnect();
+      setConnection("连接中", false);
+      setVisualMode("", "连接中", "正在建立数字人音视频通道");
+      setCaption("正在连接 GuiXiaoxi...");
+      const cfg = await loadWebRTCConfig();
+      pc = new RTCPeerConnection({
+        iceServers: cfg.iceServers || [],
+        iceTransportPolicy: cfg.iceTransportPolicy || "all",
+        iceCandidatePoolSize: Number(cfg.iceCandidatePoolSize || 0),
+        bundlePolicy: cfg.bundlePolicy || "max-bundle"
+      });
+      pc.addEventListener("track", (event) => {
+        if (event.track.kind === "video") {
+          $("video").srcObject = event.streams[0];
+        }
+        if (event.track.kind === "audio") {
+          $("audio").muted = false;
+          $("audio").volume = 1;
+          $("audio").srcObject = event.streams[0];
+        }
+      });
+      pc.addEventListener("connectionstatechange", () => {
+        if (pc.connectionState === "connected") {
+          setConnection("已连接", true);
+          setVisualMode("", "待机", "点击麦克风开始对话");
+          setCaption("你好，我是 GuiXiaoxi");
+        } else if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+          setConnection("已断开", false);
+          setVisualMode("", "待机", "请检查服务连接后重连");
+        }
+      });
+      await negotiate(pc);
+    }
+
+    async function ensureConnected() {
+      if (sessionid && pc && ["connected", "connecting"].includes(pc.connectionState)) return true;
+      try {
+        await connect();
+      } catch (error) {
+        console.error(error);
+        setConnection("连接失败", false);
+        setVisualMode("", "连接失败", "请检查本地服务与隧道");
+        setCaption("连接失败，请检查数字人服务");
+        return false;
+      }
+      return Boolean(sessionid);
+    }
+
+    async function sendQuestion(question) {
+      const text = String(question || $("questionInput").value || "").trim();
+      if (!text || busy) return;
+      const ok = await ensureConnected();
+      if (!ok) return;
+
+      busy = true;
+      $("micButton").disabled = true;
+      setLastQuestion(text);
+      setLastAnswer("正在生成回答...");
+      setCaption("正在思考...");
+      setVisualMode("thinking", "正在思考", "GuiXiaoxi 正在组织回答");
+      $("questionInput").value = "";
+
+      try {
+        const res = await fetch("/api/digital-human/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionid: String(sessionid),
+            question: text,
+            conversation_id: conversationId,
+            interrupt: true
+          })
+        });
+        const data = await res.json();
+        if (data.code !== 0) throw new Error(data.msg || "chat failed");
+        const payload = data.data || {};
+        const answer = payload.answer || "我已经收到你的问题。";
+        conversationId = payload.conversation_id || conversationId;
+        setLastAnswer(answer);
+        setCaption(answer);
+        setVisualMode("speaking", "正在播报", "数字人正在语音回答");
+        window.parent && window.parent.postMessage({ type: "guixiaoxi-answer", data: payload }, "*");
+      } catch (error) {
+        console.error(error);
+        setLastAnswer("问答服务暂时不可用");
+        setCaption("问答服务暂时不可用");
+        setVisualMode("", "待机", "请稍后再试");
+      } finally {
+        busy = false;
+        $("micButton").disabled = false;
+      }
+    }
+
+    async function speakAnswer(answer, question = "") {
+      const text = String(answer || "").trim();
+      if (!text || busy) return;
+      const ok = await ensureConnected();
+      if (!ok) return;
+
+      busy = true;
+      $("micButton").disabled = true;
+      if (question) setLastQuestion(question);
+      setLastAnswer(text);
+      setCaption(text);
+      setVisualMode("speaking", "正在播报", "数字人正在语音回答");
+
+      try {
+        const res = await fetch("/api/digital-human/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionid: String(sessionid),
+            question: question || "",
+            answer: text,
+            interrupt: true
+          })
+        });
+        const data = await res.json();
+        if (data.code !== 0) throw new Error(data.msg || "speak failed");
+        window.parent && window.parent.postMessage({ type: "guixiaoxi-spoken", data: data.data || {} }, "*");
+      } catch (error) {
+        console.error(error);
+        setLastAnswer("数字人播报服务暂时不可用");
+        setCaption("数字人播报服务暂时不可用");
+        setVisualMode("", "待机", "请稍后再试");
+      } finally {
+        busy = false;
+        $("micButton").disabled = false;
+      }
+    }
+
+    function setupSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        $("micButton").disabled = true;
+        setVisualMode("", "语音不可用", "当前浏览器不支持语音识别，可使用文字输入");
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "zh-CN";
+      recognition.interimResults = false;
+      recognition.continuous = false;
+
+      recognition.onstart = () => {
+        recognizing = true;
+        $("micButton").textContent = "STOP";
+        setCaption("请开始说话");
+        setVisualMode("listening", "正在聆听", "请直接对 GuiXiaoxi 提问");
+      };
+
+      recognition.onend = () => {
+        recognizing = false;
+        $("micButton").textContent = "MIC";
+        if (!busy) setVisualMode("", "待机", "点击麦克风开始对话");
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("speech recognition error", event);
+        setCaption("语音识别失败，请再试一次");
+        if (!busy) setVisualMode("", "待机", "点击麦克风重新开始");
+      };
+
+      recognition.onresult = (event) => {
+        const text = event.results && event.results[0] && event.results[0][0]
+          ? event.results[0][0].transcript
+          : "";
+        if (text) sendQuestion(text);
+      };
+    }
+
+    $("micButton").addEventListener("click", async () => {
+      if (!recognition || busy) return;
+      if (recognizing) {
+        recognition.stop();
+        return;
+      }
+      const ok = await ensureConnected();
+      if (!ok) return;
+      try {
+        recognition.start();
+      } catch (error) {
+        console.warn(error);
+      }
+    });
+
+    $("btnSend").addEventListener("click", () => sendQuestion());
+    $("questionInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") sendQuestion();
+    });
+
+    $("btnReconnect").addEventListener("click", () => connect().catch(console.error));
+
+    $("btnInterrupt").addEventListener("click", () => {
+      if (!sessionid) return;
+      fetch("/interrupt_talk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionid: String(sessionid) })
+      }).catch(console.error);
+      setCaption("已打断当前播报");
+      setVisualMode("", "待机", "点击麦克风继续对话");
+    });
+
+    window.addEventListener("message", (event) => {
+      const data = event.data || {};
+      if (data.type === "guixiaoxi-question" && data.question) sendQuestion(data.question);
+      if (data.type === "guixiaoxi-speak" && (data.answer || data.text)) {
+        speakAnswer(data.answer || data.text, data.question || "");
+      }
+      if (data.type === "guixiaoxi-connect") connect().catch(console.error);
+    });
+
+    setInterval(() => {
+      $("clockText").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    }, 1000);
+
+    setupSpeechRecognition();
+    connect().catch((error) => {
+      console.error(error);
+      setConnection("连接失败", false);
+      setVisualMode("", "连接失败", "请检查数字人服务");
+      setCaption("连接失败，请检查数字人服务");
+    });
+  </script>
+</body>
+</html>

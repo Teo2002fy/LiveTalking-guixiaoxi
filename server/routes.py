@@ -7,6 +7,7 @@ import asyncio
 from aiohttp import web
 
 from utils.logger import logger
+from qa_client import ask_question
 
 
 # ─── 路由工具函数 ──────────────────────────────────────────────────────────
@@ -84,6 +85,81 @@ async def interrupt_talk(request):
         return json_ok()
     except Exception as e:
         logger.exception('interrupt_talk exception:')
+        return json_error(str(e))
+
+
+async def digital_human_chat(request):
+    """Integrated Q&A endpoint for external large-screen pages."""
+    try:
+        params: dict = await request.json()
+        sessionid = str(params.get("sessionid", ""))
+        question = str(params.get("question") or params.get("text") or "").strip()
+        if not question:
+            return json_error("question is required")
+
+        avatar_session = get_session(request, sessionid)
+        if avatar_session is None:
+            return json_error("session not found")
+
+        if params.get("interrupt", True):
+            avatar_session.flush_talk()
+
+        datainfo = {}
+        if params.get("tts"):
+            datainfo["tts"] = params.get("tts")
+
+        answer, meta = await ask_question(
+            question,
+            conversation_id=str(params.get("conversation_id") or ""),
+            user=str(params.get("user") or sessionid or "guixiaoxi"),
+            inputs=params.get("inputs") if isinstance(params.get("inputs"), dict) else {},
+        )
+        answer = (answer or "").strip()
+        if not answer:
+            answer = "我暂时没有找到合适的答案。"
+
+        avatar_session.put_msg_txt(answer, datainfo)
+        return json_ok(data={
+            "sessionid": sessionid,
+            "question": question,
+            "answer": answer,
+            "conversation_id": meta.get("conversation_id", params.get("conversation_id", "")),
+            "meta": meta,
+        })
+    except Exception as e:
+        logger.exception('digital_human_chat route exception:')
+        return json_error(str(e))
+
+
+async def digital_human_speak(request):
+    """Speak a prepared answer without calling the Q&A service."""
+    try:
+        params: dict = await request.json()
+        sessionid = str(params.get("sessionid", ""))
+        text = str(params.get("answer") or params.get("text") or "").strip()
+        question = str(params.get("question") or "").strip()
+        if not text:
+            return json_error("answer/text is required")
+
+        avatar_session = get_session(request, sessionid)
+        if avatar_session is None:
+            return json_error("session not found")
+
+        if params.get("interrupt", True):
+            avatar_session.flush_talk()
+
+        datainfo = {}
+        if params.get("tts"):
+            datainfo["tts"] = params.get("tts")
+
+        avatar_session.put_msg_txt(text, datainfo)
+        return json_ok(data={
+            "sessionid": sessionid,
+            "question": question,
+            "answer": text,
+        })
+    except Exception as e:
+        logger.exception('digital_human_speak route exception:')
         return json_error(str(e))
 
 
@@ -195,6 +271,8 @@ async def admin_sessions(request):
 def setup_routes(app):
     """注册所有路由到 aiohttp app"""
     app.router.add_post("/human", human)
+    app.router.add_post("/api/digital-human/chat", digital_human_chat)
+    app.router.add_post("/api/digital-human/speak", digital_human_speak)
     app.router.add_post("/humanaudio", humanaudio)
     app.router.add_post("/set_audiotype", set_audiotype)
     app.router.add_post("/record", record)

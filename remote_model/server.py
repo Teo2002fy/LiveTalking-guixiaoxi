@@ -8,6 +8,7 @@
 """
 
 import io
+import asyncio
 import os
 import sys
 import json
@@ -15,6 +16,8 @@ import pickle
 import glob
 import base64
 import struct
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -60,10 +63,51 @@ _state = {
     "models_dir": "./models",
     "avatars_dir": "./data/avatars",
     "jpeg_quality": 85,
+    "serialize_model_tasks": True,
 }
 
 # JPEG 并行编码线程池（参照 OmniRT FLASHTALK_JPEG_WORKERS）
 _jpeg_pool = ThreadPoolExecutor(max_workers=4)
+_model_task_lock = threading.Lock()
+
+
+def _parse_bool(value, default=True):
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+class model_task_guard:
+    def __init__(self, name: str):
+        self.name = name
+        self.wait_start = None
+
+    def __enter__(self):
+        if not _state.get("serialize_model_tasks", True):
+            return self
+        self.wait_start = time.perf_counter()
+        _model_task_lock.acquire()
+        wait_ms = (time.perf_counter() - self.wait_start) * 1000
+        if wait_ms > 10:
+            logger.info("model task waited name=%s wait_ms=%.1f", self.name, wait_ms)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if _state.get("serialize_model_tasks", True):
+            _model_task_lock.release()
+
+
+def _timed_model_task(name, func, *args, **kwargs):
+    started = time.perf_counter()
+    with model_task_guard(name):
+        result = func(*args, **kwargs)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    return result, elapsed_ms
 
 
 # 请求模型
@@ -229,6 +273,7 @@ def health():
         "device": str(_state["device"]),
         "batch_size": _state["batch_size"],
         "jpeg_quality": _state["jpeg_quality"],
+        "serialize_model_tasks": _state["serialize_model_tasks"],
         "auth_required": bool(_state["api_key"]),
     }
 
@@ -296,9 +341,14 @@ def _extract_feature(audio_frames, stride_left_size, stride_right_size, batch_si
 @app.post("/audio_feature", dependencies=[Depends(verify_api_key)])
 def audio_feature(req: AudioFeatureRequest):
     try:
-        audio_frames = b64_to_np(req.audio_frames_b64)
-        feat = _extract_feature(audio_frames, req.stride_left_size,
-                                req.stride_right_size, req.batch_size, req.fps)
+        def task():
+            audio_frames = b64_to_np(req.audio_frames_b64)
+            return _extract_feature(audio_frames, req.stride_left_size,
+                                    req.stride_right_size, req.batch_size, req.fps)
+
+        feat, elapsed_ms = _timed_model_task("audio_feature", task)
+        if elapsed_ms > 300:
+            logger.info("audio_feature elapsed_ms=%.1f batch=%s", elapsed_ms, req.batch_size)
         return {"features_b64": np_to_b64(feat)}
     except Exception as e:
         logger.exception("audio_feature error")
@@ -307,8 +357,13 @@ def audio_feature(req: AudioFeatureRequest):
 @app.post("/inference", dependencies=[Depends(verify_api_key)])
 def inference(req: InferenceRequest):
     try:
-        audiofeat_batch = b64_to_np(req.audiofeat_batch_b64)
-        pred = _run_inference(audiofeat_batch, req.index, req.batch_size)
+        def task():
+            audiofeat_batch = b64_to_np(req.audiofeat_batch_b64)
+            return _run_inference(audiofeat_batch, req.index, req.batch_size)
+
+        pred, elapsed_ms = _timed_model_task("inference", task)
+        if elapsed_ms > 300:
+            logger.info("inference elapsed_ms=%.1f batch=%s index=%s", elapsed_ms, req.batch_size, req.index)
         return {"format": "jpeg",
                 "frames_jpeg_b64": frames_to_jpeg_b64(pred, _state["jpeg_quality"])}
     except Exception as e:
@@ -349,11 +404,19 @@ async def ws_infer(ws: WebSocket):
                 return
 
             if mtype == "infer":
-                feat = b64_to_np(req["feat_b64"])
                 index = int(req.get("index", 0))
                 batch = int(req.get("batch", _state["batch_size"]))
-                pred = _run_inference(feat, index, batch)
-                jpegs = frames_to_jpeg_bytes(pred, _state["jpeg_quality"])
+
+                def task():
+                    feat = b64_to_np(req["feat_b64"])
+                    return _run_inference(feat, index, batch)
+
+                pred, elapsed_ms = await asyncio.to_thread(
+                    _timed_model_task, "ws_infer", task)
+                if elapsed_ms > 300:
+                    logger.info("ws_infer elapsed_ms=%.1f batch=%s index=%s", elapsed_ms, batch, index)
+                jpegs = await asyncio.to_thread(
+                    frames_to_jpeg_bytes, pred, _state["jpeg_quality"])
                 # 先发头，再逐帧发二进制
                 await ws.send_text(json.dumps(
                     {"type": "frames", "count": len(jpegs), "index": index}))
@@ -385,9 +448,11 @@ def main():
     _state["models_dir"] = args.models_dir
     _state["avatars_dir"] = args.avatars_dir
     _state["jpeg_quality"] = args.jpeg_quality
+    _state["serialize_model_tasks"] = _parse_bool(args.serialize_model_tasks, True)
 
     logger.info(f"Loading model={args.model} avatar={args.avatar_id} on {_state['device']}")
     logger.info(f"Auth: {'enabled' if args.api_key else 'disabled'}")
+    logger.info(f"Serialize model tasks: {_state['serialize_model_tasks']}")
 
     if args.model == "wav2lip":
         _state["model"] = load_wav2lip(args.wav2lip_model_path)

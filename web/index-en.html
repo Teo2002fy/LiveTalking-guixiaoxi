@@ -146,7 +146,6 @@
                     <div class="mt-3">
                         <video id="video" autoplay playsinline></video>
                         <audio id="audio" autoplay preload="auto" style="display:none"></audio>
-                        <pre id="webrtcStats" class="mt-2 mb-0">WebRTC: -</pre>
                     </div>
                 </div>
             </div>
@@ -222,10 +221,14 @@ let pc = null;
 let sessionid = null;
 let statsTimer = null;
 let lastVideoStats = null;
+let lastStatsPostAt = 0;
 let webrtcConfig = {
     iceServers: [],
     iceTransportPolicy: 'all',
     iceGatherTimeoutMs: 3000,
+    iceCandidatePoolSize: 0,
+    statsIntervalMs: 5000,
+    bundlePolicy: 'max-bundle',
     codec: 'H264',
 };
 
@@ -252,8 +255,7 @@ function setConnectControls(connecting) {
 }
 
 function setDiagnostics(text) {
-    const el = document.getElementById('webrtcStats');
-    if (el) el.textContent = text || 'WebRTC: -';
+    if (text) console.debug(text);
 }
 
 async function loadWebRTCConfig() {
@@ -347,6 +349,20 @@ function stopStatsMonitor() {
     if (statsTimer) clearInterval(statsTimer);
     statsTimer = null;
     lastVideoStats = null;
+    lastStatsPostAt = 0;
+}
+
+function candidateStats(report, id) {
+    return id && report.get ? report.get(id) : null;
+}
+
+function postWebRTCStats(payload) {
+    fetch('/api/webrtc/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+    }).catch(e => console.debug('WebRTC stats post skipped:', e));
 }
 
 function startStatsMonitor(currentPc) {
@@ -390,10 +406,59 @@ function startStatsMonitor(currentPc) {
             parts.push('audioLost=' + (audio.packetsLost || 0));
             parts.push('audioJitter=' + Math.round((audio.jitter || 0) * 1000) + 'ms');
         }
+        let local = null;
+        let remote = null;
         if (pair && pair.currentRoundTripTime) {
             parts.push('rtt=' + Math.round(pair.currentRoundTripTime * 1000) + 'ms');
         }
+        if (pair) {
+            local = candidateStats(report, pair.localCandidateId);
+            remote = candidateStats(report, pair.remoteCandidateId);
+            if (local || remote) {
+                parts.push('route=' + [
+                    local && local.candidateType || '?',
+                    remote && remote.candidateType || '?',
+                ].join('->'));
+            }
+        }
         setDiagnostics(parts.join(' | '));
+
+        const nowMs = performance.now();
+        const intervalMs = Math.max(1000, Number(webrtcConfig.statsIntervalMs || 5000));
+        if (nowMs - lastStatsPostAt >= intervalMs) {
+            lastStatsPostAt = nowMs;
+            postWebRTCStats({
+                sessionid,
+                connectionState: currentPc.connectionState,
+                iceConnectionState: currentPc.iceConnectionState,
+                iceGatheringState: currentPc.iceGatheringState,
+                video: video ? {
+                    fps: parts.find(p => p.startsWith('fps='))?.slice(4) || null,
+                    framesDecoded: video.framesDecoded || 0,
+                    framesDropped: video.framesDropped || 0,
+                    packetsLost: video.packetsLost || 0,
+                    packetsReceived: video.packetsReceived || 0,
+                    bytesReceived: video.bytesReceived || 0,
+                    jitterMs: Math.round((video.jitter || 0) * 1000),
+                } : null,
+                audio: audio ? {
+                    packetsLost: audio.packetsLost || 0,
+                    packetsReceived: audio.packetsReceived || 0,
+                    bytesReceived: audio.bytesReceived || 0,
+                    jitterMs: Math.round((audio.jitter || 0) * 1000),
+                } : null,
+                candidatePair: pair ? {
+                    rttMs: pair.currentRoundTripTime ? Math.round(pair.currentRoundTripTime * 1000) : null,
+                    availableOutgoingBitrate: pair.availableOutgoingBitrate || null,
+                    transport: pair.transportId || null,
+                    localType: local && local.candidateType || null,
+                    localProtocol: local && local.protocol || null,
+                    remoteType: remote && remote.candidateType || null,
+                    remoteProtocol: remote && remote.protocol || null,
+                    relayProtocol: local && local.relayProtocol || null,
+                } : null,
+            });
+        }
     }, 1000);
 }
 
@@ -411,7 +476,8 @@ async function start() {
     const currentPc = new RTCPeerConnection({
         iceServers: cfg.iceServers || [],
         iceTransportPolicy: cfg.iceTransportPolicy || 'all',
-        bundlePolicy: 'max-bundle',
+        iceCandidatePoolSize: Number(cfg.iceCandidatePoolSize || 0),
+        bundlePolicy: cfg.bundlePolicy || 'max-bundle',
     });
     pc = currentPc;
 

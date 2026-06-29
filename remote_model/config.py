@@ -54,6 +54,9 @@ def parse_args():
     parser.add_argument("--avatar_id", type=str, default=M('avatar_id', 'musetalk_avatar1'))
     parser.add_argument("--batch_size", type=int, default=int(M('batch_size', 8)))
     parser.add_argument("--jpeg_quality", type=int, default=int(M('jpeg_quality', 60)))
+    parser.add_argument("--serialize_model_tasks", type=str,
+                        default=M('serialize_model_tasks', 'true'),
+                        help="true: serialize audio_feature/inference to avoid GPU contention")
     parser.add_argument("--wav2lip_model_path", type=str,
                         default=M('wav2lip_model_path', './models/wav2lip.pth'))
 

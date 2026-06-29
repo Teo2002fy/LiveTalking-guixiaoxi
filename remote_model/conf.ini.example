@@ -15,6 +15,8 @@ avatar_id = your_avatar_id
 batch_size = 8
 # 回传帧 JPEG 压缩质量 (1-100，越低体积越小，参照 OmniRT 用 55-60)
 jpeg_quality = 60
+# true: serialize audio_feature/inference to avoid GPU contention.
+serialize_model_tasks = true
 wav2lip_model_path = ./models/wav2lip.pth
 
 [path]

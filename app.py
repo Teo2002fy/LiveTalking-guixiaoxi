@@ -25,6 +25,7 @@ import json
 #from geventwebsocket.handler import WebSocketHandler
 import re
 import os
+import time
 import numpy as np
 from threading import Thread,Event
 #import multiprocessing
@@ -136,12 +137,42 @@ async def webrtc_config(request):
         "iceServers": getattr(opt_cfg, "webrtc_ice_servers", []) or [],
         "iceTransportPolicy": "relay" if getattr(opt_cfg, "webrtc_force_turn", False) else "all",
         "iceGatherTimeoutMs": int(getattr(opt_cfg, "webrtc_ice_gather_timeout", 3000) or 3000),
+        "iceCandidatePoolSize": int(getattr(opt_cfg, "webrtc_ice_candidate_pool_size", 0) or 0),
+        "statsIntervalMs": int(getattr(opt_cfg, "webrtc_stats_interval", 5000) or 5000),
+        "bundlePolicy": getattr(opt_cfg, "webrtc_bundle_policy", "max-bundle"),
         "degradationPreference": getattr(opt_cfg, "webrtc_degradation_preference", "maintain-framerate"),
         "videoBitrate": int(getattr(opt_cfg, "webrtc_video_bitrate", 800000) or 800000),
         "fps": int(getattr(opt_cfg, "webrtc_fps", 15) or 15),
         "maxWidth": int(getattr(opt_cfg, "webrtc_max_width", 576) or 576),
         "codec": getattr(opt_cfg, "webrtc_codec", "H264"),
     })
+
+
+async def webrtc_stats(request):
+    data = await request.json()
+    session = str(data.get("sessionid") or "-")[:64]
+    video = data.get("video") or {}
+    audio = data.get("audio") or {}
+    pair = data.get("candidatePair") or {}
+    logger.info(
+        "WebRTC stats session=%s conn=%s ice=%s fps=%s dropped=%s video_jitter_ms=%s "
+        "audio_jitter_ms=%s rtt_ms=%s route=%s local=%s/%s remote=%s/%s relay=%s",
+        session,
+        data.get("connectionState"),
+        data.get("iceConnectionState"),
+        video.get("fps"),
+        video.get("framesDropped"),
+        video.get("jitterMs"),
+        audio.get("jitterMs"),
+        pair.get("rttMs"),
+        pair.get("transport"),
+        pair.get("localType"),
+        pair.get("localProtocol"),
+        pair.get("remoteType"),
+        pair.get("remoteProtocol"),
+        pair.get("relayProtocol"),
+    )
+    return web.json_response({"ok": True, "ts": time.time()})
 
 
 def main():
@@ -211,6 +242,7 @@ def main():
     appasync.on_shutdown.append(on_shutdown)
     appasync.router.add_post("/offer", offer)
     appasync.router.add_get("/api/webrtc/config", webrtc_config)
+    appasync.router.add_post("/api/webrtc/stats", webrtc_stats)
     appasync.router.add_get("/record/{sessionid}", download_record)
     
     # 注册 server/routes.py 中的通用 API 路由

@@ -58,12 +58,9 @@ class RTCManager:
         servers = self._ice_servers()
         if servers:
             logger.info("WebRTC ICE servers enabled: %s", [s.urls for s in servers])
-        try:
-            from aiortc import RTCBundlePolicy
-
-            return RTCConfiguration(iceServers=servers, bundlePolicy=RTCBundlePolicy.MAX_BUNDLE)
-        except Exception:
-            return RTCConfiguration(iceServers=servers)
+        else:
+            return None
+        return RTCConfiguration(iceServers=servers)
 
     def _video_codec_preferences(self):
         capabilities = RTCRtpSender.getCapabilities("video")
@@ -84,6 +81,7 @@ class RTCManager:
 
         sessionid = await session_manager.create_session(params)
         logger.info("offer sessionid=%s", sessionid)
+        _log_sdp_candidates("offer", sessionid, offer.sdp)
         avatar_session = session_manager.get_session(sessionid)
 
         pc = RTCPeerConnection(self._rtc_configuration())
@@ -99,8 +97,8 @@ class RTCManager:
 
         from server.webrtc import HumanPlayer
         player = HumanPlayer(avatar_session)
-        pc.addTrack(player.audio)
         pc.addTrack(player.video)
+        pc.addTrack(player.audio)
 
         video_transceiver = None
         for transceiver in pc.getTransceivers():
@@ -117,11 +115,16 @@ class RTCManager:
         await pc.setRemoteDescription(offer)
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
+        await _wait_ice_gathering_complete(
+            pc,
+            timeout=max(0.1, int(getattr(self.opt, "webrtc_ice_gather_timeout", 3000) or 3000) / 1000),
+        )
 
         sdp = _limit_video_bandwidth(
             pc.localDescription.sdp,
             int(getattr(self.opt, "webrtc_video_bitrate", 800000) or 800000),
         )
+        _log_sdp_candidates("answer", sessionid, sdp)
         return web.Response(
             content_type="application/json",
             text=json.dumps({
@@ -148,8 +151,8 @@ class RTCManager:
 
         from server.webrtc import HumanPlayer
         player = HumanPlayer(avatar_session)
-        pc.addTrack(player.audio)
         pc.addTrack(player.video)
+        pc.addTrack(player.audio)
 
         await pc.setLocalDescription(await pc.createOffer())
         async with aiohttp.ClientSession() as session:
@@ -162,6 +165,46 @@ class RTCManager:
         coros = [pc.close() for pc in self.pcs]
         await asyncio.gather(*coros)
         self.pcs.clear()
+
+
+async def _wait_ice_gathering_complete(pc: RTCPeerConnection, timeout: float = 5.0) -> None:
+    if pc.iceGatheringState == "complete":
+        return
+
+    done = asyncio.Event()
+
+    @pc.on("icegatheringstatechange")
+    def on_icegatheringstatechange():
+        if pc.iceGatheringState == "complete":
+            done.set()
+
+    try:
+        await asyncio.wait_for(done.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("Timed out waiting for ICE gathering; state=%s", pc.iceGatheringState)
+
+
+def _log_sdp_candidates(label: str, sessionid: str, sdp: str) -> None:
+    candidates = [line for line in (sdp or "").splitlines() if line.startswith("a=candidate:")]
+    types = {}
+    protocols = {}
+    for line in candidates:
+        parts = line.split()
+        if "typ" in parts:
+            idx = parts.index("typ")
+            if idx + 1 < len(parts):
+                types[parts[idx + 1]] = types.get(parts[idx + 1], 0) + 1
+        if len(parts) > 2:
+            proto = parts[2].lower()
+            protocols[proto] = protocols.get(proto, 0) + 1
+    logger.info(
+        "WebRTC %s candidates session=%s count=%s types=%s protocols=%s",
+        label,
+        sessionid,
+        len(candidates),
+        types,
+        protocols,
+    )
 
 
 def _limit_video_bandwidth(sdp: str, bitrate: int) -> str:

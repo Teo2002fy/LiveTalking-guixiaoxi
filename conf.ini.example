@@ -70,6 +70,9 @@ codec = H264
 # ice_servers = [{"urls":["turn:<host>:3478?transport=udp"],"username":"user","credential":"pass"}]
 # force_turn = false
 ice_gather_timeout_ms = 3000
+ice_candidate_pool_size = 0
+stats_interval_ms = 5000
+bundle_policy = max-bundle
 degradation_preference = maintain-framerate
 
 # ─── 远程推理服务配置（base_url + model + api_key）──────────────────────────

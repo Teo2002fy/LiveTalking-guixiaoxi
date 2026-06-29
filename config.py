@@ -218,6 +218,9 @@ def parse_args():
     opt.webrtc_ice_servers = _parse_ice_servers(cfg)
     opt.webrtc_force_turn = _parse_bool(W('force_turn', 'false'), False)
     opt.webrtc_ice_gather_timeout = int(W('ice_gather_timeout_ms', 3000) or 3000)
+    opt.webrtc_ice_candidate_pool_size = int(W('ice_candidate_pool_size', 0) or 0)
+    opt.webrtc_stats_interval = int(W('stats_interval_ms', 5000) or 5000)
+    opt.webrtc_bundle_policy = W('bundle_policy', 'max-bundle') or 'max-bundle'
     opt.webrtc_degradation_preference = W('degradation_preference', 'maintain-framerate')
 
     return opt
